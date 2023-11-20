@@ -38,6 +38,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 
+//
 class ContactViewModel: ViewModel() {
     private val _contacts = mutableStateOf<List<Pair<String, String>>>(emptyList())
     val contacts: List<Pair<String, String>>
@@ -55,7 +56,8 @@ class ContactViewModel: ViewModel() {
     }
 }
 
-private const val READ_CONTACTS_REQUEST_CODE = 123
+// ei tarvita koodin "toimimiseen", mutta yksi miljoonista eri tavoista hakea oikeutta lukea kontakteja
+//private const val READ_CONTACTS_REQUEST_CODE = 123
 
 class MainActivity : AppCompatActivity() {
 
@@ -73,7 +75,7 @@ class MainActivity : AppCompatActivity() {
             registerForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted ->
                 if (isGranted) {
                     // Permission granted, access contacts or proceed to the next step
-                    // For example, call a function to access contacts here
+                    // vähän alempana accessContactList funktio
                     accessContactList()
                 } else {
                     // Permission denied
@@ -108,7 +110,6 @@ class MainActivity : AppCompatActivity() {
 
     private fun accessContactList() {
         // Code to retrieve contacts goes here
-        // You can use contentResolver to access contacts, query contacts database, etc.
         // Be sure to handle the retrieved contacts properly
         if (hasContactPermission()) {
             val contactsCursor = contentResolver.query(
@@ -153,6 +154,18 @@ class MainActivity : AppCompatActivity() {
         contactViewModel: ContactViewModel
     ) {
         var counter by remember { mutableStateOf(0) }
+        var displayErrorMessage by remember { mutableStateOf(false)}
+        var errorMessage by remember { mutableStateOf<String?>(null)}
+
+        if (displayErrorMessage) {
+            DisplayErrorDialog(
+                errorMessage = contactViewModel.contactsEmptyMessage ?: "",
+                onDismiss = {
+                    displayErrorMessage = false
+                    errorMessage = null
+                }
+            )
+        }
 
         Column(
             modifier = Modifier
@@ -177,7 +190,7 @@ class MainActivity : AppCompatActivity() {
                 FloatingActionButton(
                     onClick = {
                         requestPermissionLauncher.launch(Manifest.permission.READ_CONTACTS)
-
+                        displayErrorMessage = true
                     },
                     modifier = Modifier.size(56.dp)
                 ) {
@@ -187,6 +200,7 @@ class MainActivity : AppCompatActivity() {
                         tint = Color.White
                     )
                 }
+
                 // Display contacts or relevant UI when contacts are loaded
                 if (contactViewModel.contacts.isNotEmpty()) {
                     Column {
@@ -195,15 +209,23 @@ class MainActivity : AppCompatActivity() {
                             Text(text = "${contact.first}: ${contact.second}")
                         }
                     }
-                } else {
-                    // Display message when contacts are empty
-                    contactViewModel.contactsEmptyMessage?.let { message ->
-                        Text(text = message)
-                    }
-            }
-
+                }
             }
         }
+    }
+
+    @Composable
+    fun DisplayErrorDialog(errorMessage: String, onDismiss: () -> Unit) {
+        AlertDialog(
+            onDismissRequest = onDismiss,
+            title = { Text(text = "Error") },
+            text = { Text(text = errorMessage) },
+            confirmButton = {
+                Button(onClick = onDismiss) {
+                    Text(text = "OK")
+                }
+            }
+        )
     }
 
     @Composable
@@ -279,8 +301,6 @@ class MainActivity : AppCompatActivity() {
     fun MyAppBarPreview() {
         MyAppBar(title = "ChatApp", onIconClick = {})
     }
-
-    // Other functions and Composable content
 }
 
 
