@@ -37,8 +37,35 @@ import androidx.lifecycle.ViewModel
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.navigation.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.rememberNavController
+import androidx.navigation.NavHostController
+import androidx.navigation.compose.NavHost
 
-//
+
+// Dummylauncher alkuun kysyttäessä kontaktien jakamisen oikeuksia
+class DummyLauncher(private val callback: ActivityResultCallback<Any?>) : ActivityResultLauncher<String>() {
+    override fun launch(input: String?, options: ActivityOptionsCompat?) {
+        callback.onActivityResult(null)
+    }
+    override fun unregister() {
+
+    }
+    override fun getContract(): ActivityResultContract<String, *> {
+        return object : ActivityResultContract<String, Any?>() {
+            override fun createIntent(context: Context, input: String): Intent {
+                return Intent()
+            }
+
+            override fun parseResult(resultCode: Int, intent: Intent?): Any? {
+                return null
+            }
+        }
+    }
+}
+
+// Kontaktien näyttömalli
 class ContactViewModel: ViewModel() {
     private val _contacts = mutableStateOf<List<Pair<String, String>>>(emptyList())
     val contacts: List<Pair<String, String>>
@@ -54,10 +81,21 @@ class ContactViewModel: ViewModel() {
     fun setContactsEmptyMessage(message: String?) {
         _contactsEmptyMessage.value = message
     }
-}
+    init {
+        generateRandomContacts()
+    }
 
-// ei tarvita koodin "toimimiseen", mutta yksi miljoonista eri tavoista hakea oikeutta lukea kontakteja
-//private const val READ_CONTACTS_REQUEST_CODE = 123
+    private fun generateRandomContacts() {
+        val randomContactsList = mutableListOf<Pair<String, String>>()
+        repeat(4) {
+            val randomDisplayName = "Random Contact $it"
+            val randomNumber = "0420808666"
+
+            randomContactsList.add(Pair(randomDisplayName, randomNumber))
+        }
+        setContacts(randomContactsList)
+    }
+}
 
 class MainActivity : AppCompatActivity() {
 
@@ -67,50 +105,48 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+
+
         setContent {
-            MyAppContent(requestPermissionLauncher, contactViewModel)
+            val navController = rememberNavController()
+            NavHost(navController = navController, startDestination = "mainScreen") {
+                composable("mainScreen") {
+                    MyAppContent(requestPermissionLauncher, contactViewModel, navController)
+                }
+                composable("contactsScreen") {
+                    ContactsScreen(
+                        contacts = contactViewModel.contacts,
+                        onBack = { navController.popBackStack() }
+                    )
+                }
+                composable("SettingsScreen") {
+                    SettingsScreen(
+                        onBack = { navController.popBackStack() }
+                    )
+                }
+            }
         }
 
         requestPermissionLauncher =
             registerForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted ->
                 if (isGranted) {
-                    // Permission granted, access contacts or proceed to the next step
-                    // vähän alempana accessContactList funktio
+                    // oikeudet myönnetty, vähän alempana accessContactList funktio
                     accessContactList()
                 } else {
-                    // Permission denied
-                    // Handle the case where the user denied permission
-                    // You might want to show a message explaining why you need this permission
+                    // Oikeus evätty, mahdollinen selitys miksi tarvitaan ne tähän
                 }
             }
-
-        if (!hasContactPermission()) {
-            // Permission not granted, request it
-            requestContactPermission()
-        } else {
-            // Permission already granted, access contacts or proceed to the next step
-            // For example, call a function to access contacts here
-            accessContactList()
-            // Set the content if permission is already granted
-            if (contactViewModel.contacts.isNotEmpty())
-            setContent {
-                // Your Composable content
-                MyAppContent(requestPermissionLauncher, contactViewModel)
-            }
-        }
     }
+
+
 
     private fun hasContactPermission(): Boolean {
         return checkSelfPermission(Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED
     }
 
-    private fun requestContactPermission() {
-        requestPermissionLauncher.launch(Manifest.permission.READ_CONTACTS)
-    }
-
     private fun accessContactList() {
-        // Code to retrieve contacts goes here
-        // Be sure to handle the retrieved contacts properly
+        // Koodi kontaktien haulle
+        // Mahdollinen enkryptauksen kohde
         if (hasContactPermission()) {
             val contactsCursor = contentResolver.query(
                 ContactsContract.Data.CONTENT_URI,
@@ -146,14 +182,17 @@ class MainActivity : AppCompatActivity() {
             }
         }
     }
+}
 
-
+    // Composablejen alku
     @Composable
     fun MyAppContent(
         requestPermissionLauncher: ActivityResultLauncher<String>,
-        contactViewModel: ContactViewModel
+        contactViewModel: ContactViewModel,
+        navController: NavHostController
     ) {
         var counter by remember { mutableStateOf(0) }
+        var displayContacts by remember { mutableStateOf(false) }
         var displayErrorMessage by remember { mutableStateOf(false)}
         var errorMessage by remember { mutableStateOf<String?>(null)}
 
@@ -173,14 +212,14 @@ class MainActivity : AppCompatActivity() {
                 .background(Color.White)
                 .statusBarsPadding()
         ) {
-            MyAppBar(title = "ChatApp") {
-                // Handle icon click here
-                counter++
-            }
+            MyAppBar(title = "ChatApp",
+                onIconClick = { navController.navigate("SettingsScreen") },
+                navController = navController
+                )
             Spacer(modifier = Modifier.height(16.dp))
             Text(text = "Counter: $counter", fontSize = 24.sp)
 
-            // Create a Box to position the FloatingActionButton in the bottom right corner
+            // Laatikko FloatingActionButtonille oikeaan alakulmaan
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -190,7 +229,9 @@ class MainActivity : AppCompatActivity() {
                 FloatingActionButton(
                     onClick = {
                         requestPermissionLauncher.launch(Manifest.permission.READ_CONTACTS)
+                        displayContacts = true
                         displayErrorMessage = true
+                        navController.navigate("contactsScreen") //navigoidaan kontakti-ikkunaan
                     },
                     modifier = Modifier.size(56.dp)
                 ) {
@@ -201,10 +242,10 @@ class MainActivity : AppCompatActivity() {
                     )
                 }
 
-                // Display contacts or relevant UI when contacts are loaded
-                if (contactViewModel.contacts.isNotEmpty()) {
+                // Näyttää kontaktit kun FAB painettu
+                if (displayContacts && contactViewModel.contacts.isNotEmpty()) {
                     Column {
-                        // Display contacts here
+                        // Kontaktien listaus
                         contactViewModel.contacts.forEach { contact ->
                             Text(text = "${contact.first}: ${contact.second}")
                         }
@@ -213,6 +254,44 @@ class MainActivity : AppCompatActivity() {
             }
         }
     }
+
+@Composable
+fun SettingsScreen(onBack : () -> Unit) {
+    Text(
+        text = "Settinkejä tänne",
+        fontSize = 24.sp,
+        modifier = Modifier.padding(bottom = 16.dp)
+    )
+    Button(onClick = { onBack() }) {
+        Text(text = "Takaisin")
+    }
+}
+
+
+@Composable
+fun ContactsScreen(
+    contacts: List<Pair<String, String>>,
+    onBack: () -> Unit // Callback mennäksemme takaisin edeltävään ikkunaan
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.White)
+            .padding(16.dp)
+    ) {
+        Text(
+            text = "Contacts",
+            fontSize = 24.sp,
+            modifier = Modifier.padding(bottom = 16.dp)
+        )
+        contacts.forEach { contact ->
+            Text(text = "${contact.first}: ${contact.second}")
+        }
+        Button(onClick = { onBack() }) {
+            Text(text = "Takaisin")
+        }
+    }
+}
 
     @Composable
     fun DisplayErrorDialog(errorMessage: String, onDismiss: () -> Unit) {
@@ -229,7 +308,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     @Composable
-    fun MyAppBar(title: String, onIconClick: () -> Unit) {
+    fun MyAppBar(title: String,
+                 onIconClick: () -> Unit,
+                 navController: NavHostController
+    ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -251,7 +333,9 @@ class MainActivity : AppCompatActivity() {
                     modifier = Modifier.weight(1f) // Take up available space
                 )
                 IconButton(
-                    onClick = { onIconClick() },
+                    onClick = { onIconClick()
+                              navController.navigate("SettingsScreen")
+                              },
                     modifier = Modifier.size(48.dp)
                 ) {
                     Icon(
@@ -267,42 +351,16 @@ class MainActivity : AppCompatActivity() {
     @Preview
     @Composable
     fun MyAppPreview() {
-        val myCallback = ActivityResultCallback<Any?> {
-
-        }
+        val myCallback = ActivityResultCallback<Any?> {}
         val contactViewModel = ContactViewModel()
-        MyAppContent(requestPermissionLauncher = DummyLauncher(myCallback), contactViewModel = contactViewModel)
+        val navController = rememberNavController()
+        MyAppContent(requestPermissionLauncher = DummyLauncher(myCallback),
+            contactViewModel = ContactViewModel(),
+            navController = rememberNavController())
     }
-
-    class DummyLauncher(private val callback: ActivityResultCallback<Any?>) : ActivityResultLauncher<String>() {
-        override fun launch(input: String?, options: ActivityOptionsCompat?) {
-            callback.onActivityResult(null)
-        }
-        override fun unregister() {
-
-        }
-        override fun getContract(): ActivityResultContract<String, *> {
-            return object : ActivityResultContract<String, Any?>() {
-                override fun createIntent(context: Context, input: String): Intent {
-                    return Intent()
-                }
-
-                override fun parseResult(resultCode: Int, intent: Intent?): Any? {
-                    return null
-                }
-            }
-        }
-    }
-
-
 
     @Preview
     @Composable
     fun MyAppBarPreview() {
-        MyAppBar(title = "ChatApp", onIconClick = {})
+        MyAppBar(title = "ChatApp", onIconClick = {}, navController = rememberNavController())
     }
-}
-
-
-
-
